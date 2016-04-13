@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Running Shoe Sensor</string>
+    <string name="permission_title">This app needs location access</string>
+    <string name="permission_message">Please grant location access so this app can detect BLE devices.</string>
+    <string name="permission_failed_title">Functionality limited</string>
+    <string name="permission_failed_messsage">"Since location access has not been granted, this app will not be able to discover BLE devices.</string>
+    <string name="device_name">Device name:</string>
+    <string name="address_name">BLE Address:</string>
+    <string name="manufacturer_name">Manufacturer:</string>
+    <string name="rssi_name">RSSI:</string>
+    <string name="status_name">Status:</string>
+
+</resources>
+
