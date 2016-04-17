@@ -1,3 +1,19 @@
+/*
+ * Copyright 2016 Bart Monhemius.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.bart452.runningshoesensor;
 
 import android.Manifest;
@@ -27,8 +43,11 @@ import android.view.animation.RotateAnimation;
 import android.widget.*;
 import com.squareup.picasso.Picasso;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
@@ -39,7 +58,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private final static String ACC_UUID_X_CHAR = "1bc56727-0200-658c-e511-21f700cca137";
     private final static String ACC_UUID_Y_CHAR = "1bc56728-0200-658c-e511-21f700cca137";
 
-
     private static Context context;
 
     private BluetoothAdapter mBleAdapter;
@@ -49,7 +67,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private BluetoothGattService mBleService;
     private BluetoothGattCharacteristic mBleXChar;
     private BluetoothGattCharacteristic mBleYChar;
-
+    private List<BluetoothGattCharacteristic> mCharList;
+    private Semaphore mBleSem;
+    private BleThread mBleThread;
 
     private TextView mDevNameTv;
     private TextView mRssiTv;
@@ -103,16 +123,19 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             mBleService = gatt.getService(UUID.fromString(ACC_UUID_SERVICE));
             mBleXChar = mBleService.getCharacteristic(UUID.fromString(ACC_UUID_X_CHAR));
             mBleYChar = mBleService.getCharacteristic(UUID.fromString(ACC_UUID_Y_CHAR));
-            bleReadServices(mBleXChar, mBleYChar, gatt);
+            mCharList.addAll(Arrays.asList(mBleXChar, mBleYChar));
+            mBleThread.readBleChars(gatt, mCharList);
             super.onServicesDiscovered(gatt, status);
         }
 
         @Override
         public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            int i = characteristic.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 0);
             if(characteristic.equals(mBleXChar))
-                Log.d(LOG_TAG, "x char value: " + characteristic.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 0));
+                Log.d(LOG_TAG, "Read x value: " + i);
             else if(characteristic.equals(mBleYChar))
-                Log.d(LOG_TAG, "y char value: " + characteristic.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 0));
+                Log.d(LOG_TAG, "Read y value: " + i);
+            mBleSem.release();
             super.onCharacteristicRead(gatt, characteristic, status);
         }
     };
@@ -126,17 +149,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             }
         }, SCAN_PERIOD);
         mBleScanner.startScan(mScanCallback);
-    }
-
-    private void bleReadServices(final BluetoothGattCharacteristic xChar,
-                                 final BluetoothGattCharacteristic yChar, final BluetoothGatt gatt) {
-        mBleHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                gatt.readCharacteristic(xChar);
-                mBleHandler.postDelayed(this, 10);
-            }
-        });
     }
 
     private void requestPermission() {
@@ -172,6 +184,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mBleAdapter = mBleMan.getAdapter();
         mBleScanner = mBleAdapter.getBluetoothLeScanner();
         mBleHandler = new Handler();
+        mCharList = new ArrayList<>();
+        mBleSem = new Semaphore(1);
+        mBleThread = new BleThread(mBleSem);
+        mBleThread.start();
 
         // Text
         mDevNameTv = (TextView)findViewById(R.id.devNameTv);
