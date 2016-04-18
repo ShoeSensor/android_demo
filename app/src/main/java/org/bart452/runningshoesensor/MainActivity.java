@@ -24,10 +24,7 @@ import android.bluetooth.le.ScanResult;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.SystemClock;
+import android.os.*;
 import android.support.design.widget.CollapsingToolbarLayout;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v4.app.ActivityCompat;
@@ -62,12 +59,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private final static String ACC_UUID_SERVICE = "1bc56726-0200-658c-e511-21f700cca137";
     private final static String ACC_UUID_X_CHAR = "1bc56727-0200-658c-e511-21f700cca137";
     private final static String ACC_UUID_Y_CHAR = "1bc56728-0200-658c-e511-21f700cca137";
+    private final static int BLE_X_MSG = 1;
+    private final static int BLE_Y_MSG = 2;
 
     private static Context context;
 
     private BluetoothAdapter mBleAdapter;
     private BluetoothLeScanner mBleScanner;
-    private Handler mBleHandler;
     private BluetoothDevice mBleDevice = null;
     private BluetoothGattService mBleService;
     private BluetoothGatt mBleGatt;
@@ -95,6 +93,25 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     private RotateAnimation mRotateAnim;
     private FloatingActionButton scanFab;
+
+    protected long curTime;
+
+    private Handler mBleHandler = new Handler(new Handler.Callback() {
+        @Override
+        public boolean handleMessage(Message msg) {
+                double time = (double)(System.currentTimeMillis() - curTime) / 1000;
+                mDataGraph.getViewport().setMinX(time - 5);
+                switch (msg.what) {
+                    case BLE_X_MSG:
+                        mDataXSeries.appendData(new DataPoint(time, (double)msg.arg1), true, 50);
+                        break;
+                    case BLE_Y_MSG:
+                        mDataYSeries.appendData(new DataPoint(time, (double)msg.arg1), true, 50);
+                        break;
+                }
+            return true;
+        }
+    });
 
     private ScanCallback mScanCallback = new ScanCallback() {
         @Override
@@ -135,20 +152,25 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             mBleYChar = mBleService.getCharacteristic(UUID.fromString(ACC_UUID_Y_CHAR));
             mCharList.addAll(Arrays.asList(mBleXChar, mBleYChar));
             mBleThread.startReadingChars(gatt, mCharList);
+            curTime = System.currentTimeMillis();
             super.onServicesDiscovered(gatt, status);
         }
 
         @Override
         public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
             int i = characteristic.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 0);
+            Message msg = Message.obtain();
+            msg.arg1 = i;
             if(characteristic.equals(mBleXChar)) {
+                msg.what = BLE_X_MSG;
                 Log.d(LOG_TAG, "Read x value: " + i);
-                mDataXSeries.appendData(new DataPoint((double)i, SystemClock.currentThreadTimeMillis()), true, 100);
 
             } else if(characteristic.equals(mBleYChar)) {
+                msg.what = BLE_Y_MSG;
                 Log.d(LOG_TAG, "Read y value: " + i);
-                mDataYSeries.appendData(new DataPoint((double)i, SystemClock.currentThreadTimeMillis()), true, 100);
             }
+            msg.setTarget(mBleHandler);
+            msg.sendToTarget();
             mBleSem.release();
             super.onCharacteristicRead(gatt, characteristic, status);
         }
@@ -197,7 +219,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         final BluetoothManager mBleMan = (BluetoothManager)getSystemService(Context.BLUETOOTH_SERVICE);
         mBleAdapter = mBleMan.getAdapter();
         mBleScanner = mBleAdapter.getBluetoothLeScanner();
-        mBleHandler = new Handler();
         mCharList = new ArrayList<>();
         mBleSem = new Semaphore(1);
         mBleThread = new BleThread(mBleSem);
@@ -219,7 +240,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mDataGraph = (GraphView)findViewById(R.id.dataGraph);
         mDataXSeries = new LineGraphSeries<>();
         mDataYSeries = new LineGraphSeries<>();
-        mDataGraph.getSeries().addAll(Arrays.asList(mDataXSeries, mDataYSeries));
+        mDataGraph.addSeries(mDataXSeries);
+        mDataGraph.addSeries(mDataYSeries);
         mDataGraph.getViewport().setXAxisBoundsManual(true);
         mDataGraph.getViewport().setMinX(0);
         mDataGraph.getViewport().setMaxX(20);
