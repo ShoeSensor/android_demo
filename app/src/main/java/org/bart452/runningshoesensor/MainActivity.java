@@ -27,6 +27,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.support.design.widget.CollapsingToolbarLayout;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v4.app.ActivityCompat;
@@ -41,6 +42,10 @@ import android.view.animation.Animation;
 import android.view.animation.LinearInterpolator;
 import android.view.animation.RotateAnimation;
 import android.widget.*;
+import com.jjoe64.graphview.GraphView;
+import com.jjoe64.graphview.series.DataPoint;
+import com.jjoe64.graphview.series.LineGraphSeries;
+import com.jjoe64.graphview.series.Series;
 import com.squareup.picasso.Picasso;
 
 import java.util.ArrayList;
@@ -65,6 +70,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private Handler mBleHandler;
     private BluetoothDevice mBleDevice = null;
     private BluetoothGattService mBleService;
+    private BluetoothGatt mBleGatt;
     private BluetoothGattCharacteristic mBleXChar;
     private BluetoothGattCharacteristic mBleYChar;
     private List<BluetoothGattCharacteristic> mCharList;
@@ -82,6 +88,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     private CollapsingToolbarLayout mCollapsingTb;
     private Toolbar mToolbar;
+
+    private GraphView mDataGraph;
+    private LineGraphSeries<DataPoint> mDataXSeries;
+    private LineGraphSeries<DataPoint> mDataYSeries;
 
     private RotateAnimation mRotateAnim;
     private FloatingActionButton scanFab;
@@ -109,10 +119,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if(newState == BluetoothProfile.STATE_CONNECTED) {
-                Log.d(LOG_TAG, "Connected to BLE device");
                 gatt.discoverServices();
             } else {
                 mConnSwitch.setChecked(false);
+                mBleThread.stopReadingChars();
             }
             super.onConnectionStateChange(gatt, status, newState);
         }
@@ -124,17 +134,21 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             mBleXChar = mBleService.getCharacteristic(UUID.fromString(ACC_UUID_X_CHAR));
             mBleYChar = mBleService.getCharacteristic(UUID.fromString(ACC_UUID_Y_CHAR));
             mCharList.addAll(Arrays.asList(mBleXChar, mBleYChar));
-            mBleThread.readBleChars(gatt, mCharList);
+            mBleThread.startReadingChars(gatt, mCharList);
             super.onServicesDiscovered(gatt, status);
         }
 
         @Override
         public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
             int i = characteristic.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 0);
-            if(characteristic.equals(mBleXChar))
+            if(characteristic.equals(mBleXChar)) {
                 Log.d(LOG_TAG, "Read x value: " + i);
-            else if(characteristic.equals(mBleYChar))
+                mDataXSeries.appendData(new DataPoint((double)i, SystemClock.currentThreadTimeMillis()), true, 100);
+
+            } else if(characteristic.equals(mBleYChar)) {
                 Log.d(LOG_TAG, "Read y value: " + i);
+                mDataYSeries.appendData(new DataPoint((double)i, SystemClock.currentThreadTimeMillis()), true, 100);
+            }
             mBleSem.release();
             super.onCharacteristicRead(gatt, characteristic, status);
         }
@@ -201,6 +215,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mConnSwitch = (Switch) findViewById(R.id.connSwitch);
         mConnSwitch.setOnClickListener(this);
 
+        //Graph
+        mDataGraph = (GraphView)findViewById(R.id.dataGraph);
+        mDataXSeries = new LineGraphSeries<>();
+        mDataYSeries = new LineGraphSeries<>();
+        mDataGraph.getSeries().addAll(Arrays.asList(mDataXSeries, mDataYSeries));
+        mDataGraph.getViewport().setXAxisBoundsManual(true);
+        mDataGraph.getViewport().setMinX(0);
+        mDataGraph.getViewport().setMaxX(20);
+
         // Animation
         mRotateAnim = new RotateAnimation(0, 720, Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f);
         mRotateAnim.setDuration(SCAN_PERIOD);
@@ -253,7 +276,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 break;
             case R.id.connSwitch:
                 if(mConnSwitch.isChecked())
-                    mBleDevice.connectGatt(context, true, mGattCallback);
+                    mBleGatt = mBleDevice.connectGatt(context, true, mGattCallback);
+                else
+                    mBleGatt.disconnect();
                 break;
         }
     }

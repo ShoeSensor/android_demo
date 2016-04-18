@@ -12,6 +12,7 @@ public class BleThread extends Thread {
 
     private Semaphore mSem;
     private Handler mHandler;
+    private boolean isStopped = false;
 
     private int mCharIndex = 0;
 
@@ -19,7 +20,7 @@ public class BleThread extends Thread {
         this.mSem = sem;
     }
 
-    public void readBleChars(final BluetoothGatt gatt, final List<BluetoothGattCharacteristic> chars) {
+    public void startReadingChars(final BluetoothGatt gatt, final List<BluetoothGattCharacteristic> chars) {
 
         mHandler.post(new Runnable() {
             @Override
@@ -31,9 +32,14 @@ public class BleThread extends Thread {
                 }
                 gatt.readCharacteristic(chars.get(mCharIndex));
                 mCharIndex = (mCharIndex + 1) % chars.size();
-                mHandler.postDelayed(this, 5);
+                if(!isStopped)
+                    mHandler.postDelayed(this, 5);
             }
         });
+    }
+
+    public void stopReadingChars() {
+        isStopped = true;
     }
 
     @Override
