@@ -21,12 +21,17 @@ import android.bluetooth.*;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
-import android.content.Context;
-import android.content.DialogInterface;
+import android.content.*;
 import android.content.pm.PackageManager;
-import android.os.*;
+import android.graphics.Color;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.support.design.widget.CollapsingToolbarLayout;
+import android.support.design.widget.CoordinatorLayout;
 import android.support.design.widget.FloatingActionButton;
+import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AlertDialog;
@@ -38,11 +43,13 @@ import android.view.View;
 import android.view.animation.Animation;
 import android.view.animation.LinearInterpolator;
 import android.view.animation.RotateAnimation;
-import android.widget.*;
+import android.widget.ImageView;
+import android.widget.Switch;
+import android.widget.TextView;
+import android.widget.Toast;
 import com.jjoe64.graphview.GraphView;
 import com.jjoe64.graphview.series.DataPoint;
 import com.jjoe64.graphview.series.LineGraphSeries;
-import com.jjoe64.graphview.series.Series;
 import com.squareup.picasso.Picasso;
 
 import java.util.ArrayList;
@@ -61,6 +68,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private final static String ACC_UUID_Y_CHAR = "1bc56728-0200-658c-e511-21f700cca137";
     private final static int BLE_X_MSG = 1;
     private final static int BLE_Y_MSG = 2;
+    private final static int BLE_STOP_MSG = 3;
 
     private static Context context;
 
@@ -75,14 +83,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private Semaphore mBleSem;
     private BleThread mBleThread;
 
+    private BroadcastReceiver mBleReceiver;
+
     private TextView mDevNameTv;
     private TextView mRssiTv;
     private TextView mAddrTv;
     private Switch mConnSwitch;
+    private Snackbar mSnackBar;
 
     private ImageView mHeaderImageView;
-    private ImageView mBleImageView;
-    private ImageView mAnalysisImageView;
 
     private CollapsingToolbarLayout mCollapsingTb;
     private Toolbar mToolbar;
@@ -92,7 +101,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private LineGraphSeries<DataPoint> mDataYSeries;
 
     private RotateAnimation mRotateAnim;
-    private FloatingActionButton scanFab;
+    private FloatingActionButton mScanFab;
 
     protected long curTime;
 
@@ -107,6 +116,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                         break;
                     case BLE_Y_MSG:
                         mDataYSeries.appendData(new DataPoint(time, (double)msg.arg1), true, 50);
+                        break;
+                    case BLE_STOP_MSG:
+                        mConnSwitch.setChecked(false);
                         break;
                 }
             return true;
@@ -138,7 +150,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             if(newState == BluetoothProfile.STATE_CONNECTED) {
                 gatt.discoverServices();
             } else {
-                mConnSwitch.setChecked(false);
+                Message msg = Message.obtain();
+                msg.what = BLE_STOP_MSG;
+                msg.setTarget(mBleHandler);
+                msg.sendToTarget();
                 mBleThread.stopReadingChars();
             }
             super.onConnectionStateChange(gatt, status, newState);
@@ -161,14 +176,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             int i = characteristic.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 0);
             Message msg = Message.obtain();
             msg.arg1 = i;
-            if(characteristic.equals(mBleXChar)) {
+            if(characteristic.equals(mBleXChar))
                 msg.what = BLE_X_MSG;
-                Log.d(LOG_TAG, "Read x value: " + i);
-
-            } else if(characteristic.equals(mBleYChar)) {
+            else if(characteristic.equals(mBleYChar))
                 msg.what = BLE_Y_MSG;
-                Log.d(LOG_TAG, "Read y value: " + i);
-            }
             msg.setTarget(mBleHandler);
             msg.sendToTarget();
             mBleSem.release();
@@ -180,11 +191,31 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mBleHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                mBleScanner.stopScan(mScanCallback);
-                Toast.makeText(context, "Stopped scanning", Toast.LENGTH_SHORT).show();
+                if(mBleAdapter.isEnabled())
+                    mBleScanner.stopScan(mScanCallback);
+                if(!mConnSwitch.isEnabled())
+                    Toast.makeText(context, "Stopped scanning", Toast.LENGTH_SHORT).show();
             }
         }, SCAN_PERIOD);
         mBleScanner.startScan(mScanCallback);
+    }
+
+    private void bleEnable() {
+        if(!mBleAdapter.isEnabled()) {
+            mSnackBar = Snackbar.make(
+                    (CoordinatorLayout)findViewById(R.id.coordinator),
+                    "Please enable Bluetooth",
+                    Snackbar.LENGTH_INDEFINITE);
+            mSnackBar.setAction("Enable", new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Intent i = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                    startActivity(i);
+                    mScanFab.setEnabled(true);
+                }
+            });
+            mSnackBar.show();
+        }
     }
 
     private void requestPermission() {
@@ -204,9 +235,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         setContentView(R.layout.activity_main);
         requestPermission();
         context = getApplicationContext();
+
         mHeaderImageView = (ImageView) findViewById(R.id.appBarIv);
-        mBleImageView = (ImageView)findViewById(R.id.bleIv);
-        mAnalysisImageView = (ImageView)findViewById(R.id.analysisIv);
+        Picasso.with(context)
+                .load(R.drawable.sunset_road_landscape)
+                .into(mHeaderImageView);
 
         // Toolbar
         mToolbar = (Toolbar) findViewById(R.id.toolBar);
@@ -224,6 +257,25 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mBleThread = new BleThread(mBleSem);
         mBleThread.start();
 
+        mBleReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if(BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())) {
+                    if(mBleAdapter.getState() == BluetoothAdapter.STATE_ON) {
+                        Log.d(LOG_TAG, "BT ON");
+                        mScanFab.setEnabled(true);
+                        if(mSnackBar != null) {
+                            if(mSnackBar.isShown())
+                                mSnackBar.dismiss();
+                        }
+                    } else {
+                        mScanFab.setEnabled(false);
+                        bleEnable();
+                    }
+                }
+            }
+        };
+
         // Text
         mDevNameTv = (TextView)findViewById(R.id.devNameTv);
         mDevNameTv.setText(getString(R.string.device_name) + " No device found");
@@ -231,8 +283,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mAddrTv = (TextView)findViewById(R.id.devAddrTv);
 
         // Buttons and switches
-        scanFab = (FloatingActionButton)findViewById(R.id.scanFab);
-        scanFab.setOnClickListener(this);
+        mScanFab = (FloatingActionButton)findViewById(R.id.scanFab);
+        mScanFab.setOnClickListener(this);
         mConnSwitch = (Switch) findViewById(R.id.connSwitch);
         mConnSwitch.setOnClickListener(this);
 
@@ -240,6 +292,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mDataGraph = (GraphView)findViewById(R.id.dataGraph);
         mDataXSeries = new LineGraphSeries<>();
         mDataYSeries = new LineGraphSeries<>();
+        mDataYSeries.setBackgroundColor(Color.RED);
         mDataGraph.addSeries(mDataXSeries);
         mDataGraph.addSeries(mDataYSeries);
         mDataGraph.getViewport().setXAxisBoundsManual(true);
@@ -250,22 +303,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mRotateAnim = new RotateAnimation(0, 720, Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f);
         mRotateAnim.setDuration(SCAN_PERIOD);
         mRotateAnim.setInterpolator(new LinearInterpolator());
-    }
-
-    @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        Picasso.with(context)
-                .load(R.drawable.sunset_road_landscape)
-                .into(mHeaderImageView);
-        Picasso.with(context)
-                .load(R.drawable.ble_header)
-                .resize(mHeaderImageView.getWidth(), mHeaderImageView.getWidth()/4)
-                .into(mBleImageView);
-        Picasso.with(context)
-                .load(R.drawable.analisys_header)
-                .resize(mAnalysisImageView.getWidth(), mAnalysisImageView.getWidth()/4)
-                .into(mAnalysisImageView);
+        bleEnable();
     }
 
     @Override
@@ -293,7 +331,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     public void onClick(View v) {
         switch (v.getId()) {
             case R.id.scanFab:
-                scanFab.startAnimation(mRotateAnim);
+                mScanFab.startAnimation(mRotateAnim);
                 bleScanDevices();
                 break;
             case R.id.connSwitch:
@@ -303,5 +341,23 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     mBleGatt.disconnect();
                 break;
         }
+    }
+
+    @Override
+    protected void onResume() {
+        registerReceiver(mBleReceiver, new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED));
+        super.onResume();
+    }
+
+    @Override
+    protected void onPause() {
+        unregisterReceiver(mBleReceiver);
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        unregisterReceiver(mBleReceiver);
+        super.onDestroy();
     }
 }

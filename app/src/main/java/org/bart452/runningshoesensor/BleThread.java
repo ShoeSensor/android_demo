@@ -30,10 +30,11 @@ public class BleThread extends Thread {
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
-                gatt.readCharacteristic(chars.get(mCharIndex));
-                mCharIndex = (mCharIndex + 1) % chars.size();
-                if(!isStopped)
+                if(!isStopped) {
+                    gatt.readCharacteristic(chars.get(mCharIndex));
+                    mCharIndex = (mCharIndex + 1) % chars.size();
                     mHandler.postDelayed(this, 5);
+                }
             }
         });
     }

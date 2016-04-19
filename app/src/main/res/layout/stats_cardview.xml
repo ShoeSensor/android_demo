@@ -8,7 +8,8 @@
         card_view:cardUseCompatPadding="true"
         card_view:cardBackgroundColor="@android:color/background_light"
         card_view:cardElevation="8dp"
-        card_view:cardCornerRadius="8dp">
+        card_view:cardCornerRadius="8dp"
+        card_view:cardPreventCornerOverlap="false">
 
     <LinearLayout
             android:layout_width="match_parent"
@@ -17,24 +18,32 @@
         <ImageView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginBottom="-25dp"
+                android:src="@drawable/analisys_header"
                 android:id="@+id/analysisIv"
-                android:layout_marginTop="-4dp"
-                android:paddingBottom="@dimen/padding_default"/>
-
-        <com.jjoe64.graphview.GraphView
-                android:padding="10dp"
+                android:scaleType="fitStart"/>
+        <RelativeLayout
                 android:layout_width="match_parent"
-                android:layout_height="100dip"
-                android:id="@+id/dataGraph"
-                app:seriesColor="#ee0000"
-                android:paddingBottom="@dimen/padding_default"/>
+                android:layout_height="wrap_content"
+                android:paddingLeft="10dp">
+
+            <com.jjoe64.graphview.GraphView
+                    android:layout_width="match_parent"
+                    android:layout_height="200dip"
+                    android:layout_marginLeft="10dp"
+                    android:id="@+id/dataGraph"
+                    app:seriesColor="#ee0000"
+                    android:paddingBottom="@dimen/padding_default"/>
+        </RelativeLayout>
+
 
         <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/status_name"
                 android:paddingLeft="@dimen/padding_default"
-                android:paddingBottom="@dimen/padding_default"/>
+                android:paddingBottom="@dimen/padding_default"
+                android:paddingTop="10dp"/>
 
     </LinearLayout>
 
